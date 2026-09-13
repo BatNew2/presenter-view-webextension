@@ -36,16 +36,40 @@
    *                         means "whichever screen is not the current one",
    *                         which needs no configuring on any machine.
    */
-  let settings = { ...self.PresenterSettings.DEFAULTS };
+  /**
+   * Defaults repeated here on purpose. settings.js is injected before this
+   * file, but if it ever fails to load, reading through it at the top level
+   * would throw and take the key listener down with it — the extension would
+   * do nothing at all, with no clue why. The shortcut matters more than the
+   * settings, so this file never depends on it being there.
+   */
+  const BUILT_IN = {
+    triggerKey: "F4",
+    preferredDisplayName: "",
+  };
 
-  self.PresenterSettings.load().then((loaded) => {
-    settings = loaded;
-  });
-  self.PresenterSettings.onChange(() => {
-    self.PresenterSettings.load().then((loaded) => {
-      settings = loaded;
-    });
-  });
+  const settingsApi = self.PresenterSettings || null;
+  let settings = { ...BUILT_IN, ...(settingsApi ? settingsApi.DEFAULTS : null) };
+
+  function refreshSettings() {
+    if (!settingsApi) return;
+    settingsApi.load().then(
+      (loaded) => {
+        settings = { ...BUILT_IN, ...loaded };
+      },
+      () => {}, // keep the defaults
+    );
+  }
+
+  if (settingsApi) {
+    refreshSettings();
+    settingsApi.onChange(refreshSettings);
+  } else {
+    console.warn(
+      "[presenter-f4] settings.js did not load; using built-in defaults.",
+      "The shortcut still works, but the options page will not affect it.",
+    );
+  }
 
   /** How Slides labels the screen the browser is already on. */
   const CURRENT_SCREEN = /^\(?current\)?$/i;
@@ -666,6 +690,15 @@
   }
 
   document.addEventListener("keydown", onKeyDown, true);
+
+  if (IS_TOP) {
+    const site = siteFor();
+    // One line, so a glance at the page console answers "is it even running?".
+    console.log(
+      `[presenter-f4] ready — ${site ? site.name : "no matching app on this page"}` +
+        `, key: ${settings.triggerKey}`,
+    );
+  }
 
   if (IS_TOP) {
     window.addEventListener("message", (event) => {

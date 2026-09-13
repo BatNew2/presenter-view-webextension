@@ -23,8 +23,15 @@
  */
 
 // The worker is a classic (non-module) service worker, so this is how the
-// shared settings are pulled in.
-importScripts("settings.js");
+// shared settings are pulled in. Guarded: a throw here would abort the whole
+// worker script, taking the message listeners at the bottom of this file with
+// it, and the extension would fail silently. Without it the built-in CONFIG
+// below is used unchanged.
+try {
+  importScripts("settings.js");
+} catch (error) {
+  console.warn("[presenter-f4] settings.js failed to load:", error);
+}
 
 // ------------------------------------------------------------------ config --
 const CONFIG = {
@@ -121,9 +128,15 @@ const log = (...args) => {
  * very next keypress.
  */
 async function refreshConfig() {
-  const settings = await self.PresenterSettings.load();
-  self.PresenterSettings.applyToConfig(settings, CONFIG);
-  return settings;
+  if (!self.PresenterSettings) return null; // defaults in CONFIG still apply
+  try {
+    const settings = await self.PresenterSettings.load();
+    self.PresenterSettings.applyToConfig(settings, CONFIG);
+    return settings;
+  } catch (error) {
+    log("could not read saved options, using defaults:", String(error));
+    return null;
+  }
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
