@@ -22,6 +22,10 @@
  * retried rather than fired and forgotten -- see placeAndVerify.
  */
 
+// The worker is a classic (non-module) service worker, so this is how the
+// shared settings are pulled in.
+importScripts("settings.js");
+
 // ------------------------------------------------------------------ config --
 const CONFIG = {
   // Which surface holds the slides.
@@ -44,6 +48,15 @@ const CONFIG = {
   // The console log lists every display with its index and id, so if the
   // automatic choice is wrong you can pin the exact one here.
   TARGET_DISPLAY: "secondary",
+
+  // Where the presenter/notes window goes once the slides are placed.
+  //   "primary"  -> the primary monitor (the default)
+  //   "opposite" -> whichever monitor the slides did not go to
+  //   "<display id>"
+  // Skipped when it resolves to the display the slides are on, or when the
+  // notes window is already there. Its own window state is preserved: a
+  // presenter panel that fullscreened itself stays fullscreen.
+  NOTES_DISPLAY: "primary",
 
   // "fullscreen" | "maximized" | "normal"
   FINAL_STATE: "fullscreen",
@@ -100,6 +113,18 @@ const PRESENTER_URL = /^https?:\/\/([^/]*\.)?(canva\.com|docs\.google\.com)\//;
 const log = (...args) => {
   if (CONFIG.DEBUG) console.log("[presenter-f4]", ...args);
 };
+
+/**
+ * Fold the user's saved options into CONFIG. Called at the start of each flow
+ * rather than once at startup: a service worker is torn down and restarted
+ * constantly, and this way a change made in the options page applies to the
+ * very next keypress.
+ */
+async function refreshConfig() {
+  const settings = await self.PresenterSettings.load();
+  self.PresenterSettings.applyToConfig(settings, CONFIG);
+  return settings;
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -187,6 +212,35 @@ async function pickDisplay(currentWindowId) {
   return byX[0];
 }
 
+/**
+ * Which monitor the presenter/notes window should end up on. Returns null when
+ * there is nowhere sensible to put it — one monitor, or the only candidate is
+ * the one the slides are already using.
+ */
+async function pickNotesDisplay(slidesDisplay) {
+  const displays = await chrome.system.display.getInfo();
+  if (displays.length < 2) return null;
+
+  const target = CONFIG.NOTES_DISPLAY;
+  let chosen = null;
+
+  if (target === "opposite") {
+    const others = displays.filter((d) => d.id !== slidesDisplay.id);
+    chosen = others.find((d) => d.isPrimary) || others[0] || null;
+  } else if (target === "primary") {
+    chosen = displays.find((d) => d.isPrimary) || displays[0];
+  } else {
+    chosen = displays.find((d) => String(d.id) === String(target)) || null;
+    if (!chosen) log("no display with id", target, "- leaving the notes window alone");
+  }
+
+  if (chosen && chosen.id === slidesDisplay.id) {
+    log("notes want display", chosen.id, "but the slides are there - leaving it alone");
+    return null;
+  }
+  return chosen;
+}
+
 /** Is the window sitting on this display? */
 function isOn(win, display) {
   if (!win || typeof win.left !== "number") return false;
@@ -267,7 +321,7 @@ async function moveTo(windowId, bounds) {
  * that it actually went there. Chrome will happily report success on an update
  * it then undoes, so this re-reads the window and retries.
  */
-async function placeAndVerify(windowId, display) {
+async function placeAndVerify(windowId, display, finalState = CONFIG.FINAL_STATE) {
   // Full monitor bounds, not the work area. The window is only in this geometry
   // for a few frames before going fullscreen, and matching the fullscreen rect
   // exactly means the audience sees no resize -- just the browser chrome
@@ -300,9 +354,9 @@ async function placeAndVerify(windowId, display) {
     // Apply the final state unconditionally, even when the move looks wrong.
     // A fullscreen window on the wrong monitor is one drag away from right; a
     // small window left in limbo because we bailed out early is just broken.
-    if (CONFIG.FINAL_STATE !== "normal") {
+    if (finalState !== "normal") {
       await sleep(CONFIG.PRE_FULLSCREEN_MS);
-      await chrome.windows.update(windowId, { state: CONFIG.FINAL_STATE });
+      await chrome.windows.update(windowId, { state: finalState });
     }
 
     const win = await readSettled(windowId);
@@ -322,11 +376,31 @@ async function placeAndVerify(windowId, display) {
     "!! could not get the window onto display",
     display.id,
     "- left it",
-    CONFIG.FINAL_STATE,
+    finalState,
     "where it is. Try raising CONFIG.PRE_FULLSCREEN_MS, or pin",
     "CONFIG.TARGET_DISPLAY to the index or id above.",
   );
   return false;
+}
+
+/**
+ * Move the presenter/notes window onto `display`, keeping whatever window state
+ * it already had — Canva's presenter panel fullscreens itself, and it should
+ * stay fullscreen on its new monitor rather than being dropped to a bare window.
+ */
+async function placeNotesWindow(windowId, display) {
+  const win = await chrome.windows.get(windowId).catch(() => null);
+  if (!win) return;
+
+  if (isOn(win, display)) {
+    log("notes window is already on display", display.id);
+    return;
+  }
+
+  const keepState =
+    win.state === "fullscreen" || win.state === "maximized" ? win.state : "normal";
+  log("moving notes window", windowId, "to display", display.id, "as", keepState);
+  await placeAndVerify(windowId, display, keepState);
 }
 
 /**
@@ -418,13 +492,17 @@ async function finish(snapshot) {
     );
   }
 
-  if (!CONFIG.FOCUS_NOTES_AFTER) return;
-
-  // Hand focus back to the other half so the deck can be driven from it.
+  // The other half: the presenter/notes window.
   const notesTabId = CONFIG.SLIDES_WINDOW === "new" ? sourceTabId : newTabIds[0];
   if (notesTabId === undefined) return;
   const notesTab = await chrome.tabs.get(notesTabId).catch(() => null);
-  if (notesTab && notesTab.windowId !== slidesWindowId) {
+  if (!notesTab || notesTab.windowId === slidesWindowId) return;
+
+  const notesDisplay = await pickNotesDisplay(display);
+  if (notesDisplay) await placeNotesWindow(notesTab.windowId, notesDisplay);
+
+  if (CONFIG.FOCUS_NOTES_AFTER) {
+    // Focus last, so it survives the placement above.
     await chrome.windows.update(notesTab.windowId, { focused: true }).catch(() => {});
     log("focus returned to window", notesTab.windowId);
   }
@@ -459,13 +537,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !sender.tab) return;
 
   if (message.type === "arm-presenter-move") {
+    // Arm synchronously so no window can open before we are watching; the
+    // settings only matter later, once something has actually appeared.
     arm(sender.tab);
+    refreshConfig();
     sendResponse({ armed: true });
     return;
   }
 
   if (message.type === "pop-out-tab") {
-    popOutToOwnWindow(sender.tab).then((windowId) => {
+    refreshConfig().then(() => popOutToOwnWindow(sender.tab)).then((windowId) => {
       // Reply on the port, and also push a message: re-parenting a tab can
       // break the port it asked on, and the page is waiting on this.
       sendResponse({ windowId });

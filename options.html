@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Presenter View Shortcut — Options</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --fg: #1f2430;
+        --muted: #5c6370;
+        --line: #e3e5ea;
+        --accent: #4f46e5;
+        --field: #ffffff;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #202124;
+          --fg: #e8eaed;
+          --muted: #9aa0a6;
+          --line: #3c4043;
+          --accent: #8b83ff;
+          --field: #2a2b2e;
+        }
+      }
+
+      body {
+        margin: 0;
+        padding: 2px 24px 40px;
+        background: var(--bg);
+        color: var(--fg);
+        font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      main { max-width: 560px; margin: 0 auto; }
+
+      h1 {
+        font-size: 18px;
+        margin: 0 0 4px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      h1 img { width: 24px; height: 24px; }
+      .lede { color: var(--muted); margin: 0 0 24px; }
+
+      .field { padding: 16px 0; border-top: 1px solid var(--line); }
+      .field:first-of-type { border-top: none; }
+      label.title { display: block; font-weight: 600; margin-bottom: 4px; }
+      .hint { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+
+      select {
+        width: 100%;
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: var(--field);
+        color: var(--fg);
+        font: inherit;
+      }
+      .row { display: flex; align-items: flex-start; gap: 10px; }
+      .row input[type="checkbox"] { margin-top: 3px; width: 16px; height: 16px; }
+
+      details {
+        margin-top: 24px;
+        border-top: 1px solid var(--line);
+        padding-top: 16px;
+      }
+      summary { cursor: pointer; color: var(--muted); font-weight: 600; }
+
+      #status {
+        position: fixed;
+        left: 50%;
+        bottom: 24px;
+        transform: translateX(-50%) translateY(8px);
+        background: var(--accent);
+        color: #fff;
+        padding: 8px 16px;
+        border-radius: 999px;
+        font-size: 13px;
+        opacity: 0;
+        transition: opacity 0.15s, transform 0.15s;
+        pointer-events: none;
+      }
+      #status.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="field" style="padding: 0 !important">
+        <label class="title" for="triggerKey">Shortcut key</label>
+        <select id="triggerKey"></select>
+        <p class="hint">
+          Pressed on its own, with no modifiers, while a deck is open. Keys Chrome
+          uses itself are marked — picking one means Chrome acts first.
+        </p>
+      </div>
+
+      <div class="field">
+        <label class="title" for="targetDisplay">Present on</label>
+        <select id="targetDisplay"></select>
+        <p class="hint" id="displayHint">
+          Pick a monitor by name to pin it, or leave it on the default so it works
+          wherever you plug in.
+        </p>
+      </div>
+
+      <div class="field">
+        <label class="title" for="notesDisplay">Put the presenter view on</label>
+        <select id="notesDisplay"></select>
+        <p class="hint">
+          Where the speaker notes and timer go. Canva only — Google&nbsp;Slides always
+          opens presenter view on the screen it did not put the slideshow on, and
+          gives no say in it. Ignored if it lands on the same monitor as the slides.
+        </p>
+      </div>
+
+      <div class="field">
+        <div class="row">
+          <input type="checkbox" id="focusNotesAfter" />
+          <div>
+            <label class="title" for="focusNotesAfter">Focus the speaker notes</label>
+            <p class="hint" style="margin-top: 2px">
+              After the slides are placed, put the cursor back in the notes window so
+              you can drive the deck from it.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <details>
+        <summary>Advanced</summary>
+
+        <div class="field" style="border-top: none">
+          <label class="title" for="slidesWindow">Which window holds the slides</label>
+          <select id="slidesWindow">
+            <option value="source">The tab I pressed the key in (default)</option>
+            <option value="new">The new window the app opens</option>
+          </select>
+          <p class="hint">
+            Canva only. Change this if the speaker notes end up on the presentation
+            screen instead of the slides.
+          </p>
+        </div>
+
+        <div class="field">
+          <label class="title" for="finalState">Window state</label>
+          <select id="finalState">
+            <option value="fullscreen">Fullscreen (default)</option>
+            <option value="maximized">Maximized</option>
+            <option value="normal">Fill the screen, keep the window frame</option>
+          </select>
+          <p class="hint">Canva only. Google Slides handles its own fullscreen.</p>
+        </div>
+      </details>
+    </main>
+
+    <div id="status">Saved</div>
+
+    <script src="settings.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>

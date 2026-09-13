@@ -26,14 +26,26 @@
   "use strict";
 
   // ---------------------------------------------------------------- config --
-  const TRIGGER_KEY = "F4"; // KeyboardEvent.key — change to "F2", "F8", ... to rebind
-
   /**
-   * Pin the monitor to present on, as a case-insensitive substring of the name
-   * Google Slides shows (e.g. "LG ULTRAGEAR"). Leave null to simply take
-   * whichever option is not the screen you are on, which works on any machine.
+   * Live copy of the user's settings, from the options page. Defaults are used
+   * until storage answers, so an F4 in the first few milliseconds still works.
+   *
+   *   triggerKey            the key to press, on its own
+   *   preferredDisplayName  pins the monitor for Google Slides, as a substring
+   *                         of the name it shows (e.g. "LG ULTRAGEAR"). Empty
+   *                         means "whichever screen is not the current one",
+   *                         which needs no configuring on any machine.
    */
-  const PREFERRED_DISPLAY_NAME = null;
+  let settings = { ...self.PresenterSettings.DEFAULTS };
+
+  self.PresenterSettings.load().then((loaded) => {
+    settings = loaded;
+  });
+  self.PresenterSettings.onChange(() => {
+    self.PresenterSettings.load().then((loaded) => {
+      settings = loaded;
+    });
+  });
 
   /** How Slides labels the screen the browser is already on. */
   const CURRENT_SCREEN = /^\(?current\)?$/i;
@@ -518,8 +530,8 @@
   }
 
   /**
-   * Pick the monitor to present on: the pinned one if PREFERRED_DISPLAY_NAME is
-   * set, otherwise whichever option is not the screen the browser is on. Slides
+   * Pick the monitor to present on: the pinned one if a display name is set in
+   * the options, otherwise whichever option is not the screen the browser is on. Slides
    * lists the current screen as "(current)", and names the other one, so the
    * one to take is simply the one that is not "(current)".
    *
@@ -538,9 +550,10 @@
     }
     if (!candidates.length) return null;
 
-    if (PREFERRED_DISPLAY_NAME) {
+    const pinnedName = (settings.preferredDisplayName || "").trim();
+    if (pinnedName) {
       const pinned = candidates.find((t) =>
-        t.label.toLowerCase().includes(PREFERRED_DISPLAY_NAME.toLowerCase()),
+        t.label.toLowerCase().includes(pinnedName.toLowerCase()),
       );
       if (pinned) return pinned;
     }
@@ -639,7 +652,7 @@
   const IS_TOP = window.top === window;
 
   function onKeyDown(event) {
-    if (event.key !== TRIGGER_KEY) return;
+    if (event.key !== settings.triggerKey) return;
     if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
     if (event.repeat) return;
 
